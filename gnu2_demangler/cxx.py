@@ -227,18 +227,20 @@ class CxxTerm:
         """
         Validate the term's contents.
         """
-        if self.array_dim and not self.kind.is_array():
-            raise AssertionError(f"Non-array term {self.kind.name} cannot have array dimension.")
+        if self.array_dim:
+            assert (
+                self.kind.is_array()
+            ), f"Non-array term {self.kind.name} cannot have array dimension."
 
-        if (self.function_params or self.function_return) and not self.kind.is_function():
-            raise AssertionError(
-                f"Non-function term {self.kind.name} cannot have function params/return type."
-            )
+        if self.function_params or self.function_return:
+            assert (
+                self.kind.is_function()
+            ), f"Non-function term {self.kind.name} cannot have function params/return type."
 
-        if self.qualified_name and not self.kind.is_qualified_name():
-            raise AssertionError(
-                f"Non-qualified-name term {self.kind.name} cannot have qualified name."
-            )
+        if self.qualified_name:
+            assert (
+                self.kind.is_qualified_name()
+            ), f"Non-qualified-name term {self.kind.name} cannot have qualified name."
 
     def add_base_name(self, name: CxxName):
         """
@@ -246,8 +248,9 @@ class CxxTerm:
         it to the list of qualified names.
         Otherwise, throw an error.
         """
-        if not self.kind.is_qualified_name():
-            raise AssertionError(f"Cannot add base name to CxxTerm with type {self.kind.name}!")
+        assert (
+            self.kind.is_qualified_name()
+        ), f"Cannot add base name to CxxTerm with type {self.kind.name}!"
 
         if self.qualified_name is None:
             self.qualified_name = []
@@ -259,10 +262,9 @@ class CxxTerm:
         prepending it to the list of qualified names.
         Otherwise, throw an error.
         """
-        if not self.kind.is_qualified_name():
-            raise AssertionError(
-                f"Cannot add qualifying name to CxxTerm with type {self.kind.name}!"
-            )
+        assert (
+            self.kind.is_qualified_name()
+        ), f"Cannot add qualifying name to CxxTerm with type {self.kind.name}!"
 
         if self.qualified_name is None:
             self.qualified_name = []
@@ -274,16 +276,49 @@ class CxxTerm:
         names as qualifiers of this name (effectively adding them as outer qualifiers).
         Otherwise, throw an error.
         """
-        if not self.kind.is_qualified_name():
-            raise AssertionError(
-                f"Cannot add qualifying name to CxxTerm with type {self.kind.name}!"
-            )
-        if not other.kind.is_qualified_name():
-            raise AssertionError(f"Cannot qualify name with term of type {other.kind.name}!")
+        assert (
+            self.kind.is_qualified_name()
+        ), f"Cannot add qualifying name to CxxTerm with type {self.kind.name}!"
+
+        assert (
+            other.kind.is_qualified_name()
+        ), f"Cannot qualify name with term of type {other.kind.name}!"
 
         # Iterate over a shallow copy in reversed order.
         for name in other.qualified_name[::-1]:
             self.add_qualifying_name(name)
+
+    def base_on(self, other: "CxxTerm"):
+        """
+        If this and the given CxxTerm are both QUALIFIED, append the given term's
+        names as the base of this name.
+        Otherwise, throw an error.
+        """
+        assert (
+            self.kind.is_qualified_name()
+        ), f"Cannot add qualifying name to CxxTerm with type {self.kind.name}!"
+
+        assert (
+            other.kind.is_qualified_name()
+        ), f"Cannot qualify name with term of type {other.kind.name}!"
+
+        for name in other.qualified_name:
+            self.add_base_name(name)
+
+    def get_base_name(self) -> CxxName:
+        """
+        If this is a QUALIFIED CxxTerm, get the current base (innermost/rightmost) name
+        of the term.
+        Otherwise, throw an error.
+        """
+        assert (
+            self.kind.is_qualified_name()
+        ), f"Cannot get base name for CxxTerm with type {self.kind.name}!"
+        assert bool(
+            self.qualified_name
+        ), "Cannot get base name for QUALIFIED CxxTerm with no names!"
+
+        return self.qualified_name[-1]
 
     def __str__(self) -> str:
         """
@@ -447,29 +482,97 @@ class CxxType:
 @dataclass
 class CxxSymbol:
     """
-    Represents a C++ symbol and its type.
+    Represents a C++ symbol and its type (if known).
     """
 
     name: CxxTerm
-    type: CxxType
+    type: Optional[CxxType] = None
+    is_type_info_node: bool = False
+    is_type_info_func: bool = False
+    is_vtable: bool = False
     is_static: bool = False
+    is_constructor: bool = False
+    is_destructor: bool = False
+    is_dll_imported: bool = False
+    is_global: bool = False
+    is_virtual_thunk: bool = False
+    vthunk_delta: Optional[int] = None
+
+    def __post_init__(self):
+        """
+        Verify certain properties of the new symbol.
+        """
+        # Verify known mutually exclusive flags.
+        xor_flags = [
+            self.is_type_info_node,
+            self.is_type_info_func,
+            self.is_vtable,
+            self.is_constructor,
+            self.is_destructor,
+            self.is_virtual_thunk,
+            self.is_dll_imported,
+        ]
+        if any(xor_flags):
+            assert (
+                len([b for b in xor_flags if b]) <= 1
+            ), "Multiple mutually exclusive flags are set!"
+
+        assert self.name.kind == CxxTerm.Kind.QUALIFIED, "Symbol name terms must be Kind.QUALIFIED!"
+
+        if self.type is None:
+            assert (
+                self.is_static or self.is_vtable or self.is_global_xtor()
+            ), "Symbols must have a type unless they are static data, vtables, or global x-tors!"
+
+        if self.is_virtual_thunk:
+            assert self.vthunk_delta is not None, "Virtual thunks must have `delta`!"
+        else:
+            assert not self.vthunk_delta, "Non-virtual-thunks should not have `delta`!"
+
+    def is_global_xtor(self) -> bool:
+        """
+        Determine if this is a global constructor/destructor symbol.
+        """
+        return self.is_global and (self.is_constructor or self.is_destructor)
 
     def __str__(self) -> str:
-        static_str = "static " if self.is_static else ""
+        """
+        Format this demangled symbol as a string with the goal of matching the output
+        of upstream GNU's demangler.
+        """
+        if self.type is None:
+            # Format any prefix strings.
+            prefix_str = ""
+            if self.is_global_xtor():
+                xtor = "constructors" if self.is_constructor else "destructors"
+                prefix_str = f"global {xtor} keyed to "
+            elif self.is_dll_imported:
+                prefix_str = "import stub for "
 
-        pre, prim, post = self.type.get_ordered_declaration()
-        if prim.kind.is_function():
-            # Format this symbol as a function declaration.
-            pre_mods = f"{' '.join(str(m) for m in pre)} " if pre else ""
-            post_mods = f" {' '.join(str(m) for m in post)}" if post else ""
+            # Format any suffix strings.
+            suffix_str = ""
+            if self.is_vtable:
+                suffix_str = " virtual table"
 
-            # If an explicit return type isn't found, the upstream demangler completely
-            # omits it for function symbols.
-            ret_str = f"{prim.function_return} " if prim.function_return else ""
-            param_str = (
-                ", ".join([str(p) for p in prim.function_params]) if prim.function_params else ""
-            )
+            # To match GNU, don't output `static` for static data symbols.
+            return f"{prefix_str}{self.name}{suffix_str}"
+        else:
+            static_str = "static " if self.is_static else ""
+            pre, prim, post = self.type.get_ordered_declaration()
+            if prim.kind.is_function():
+                # Format this symbol as a function declaration.
+                pre_mods = f"{' '.join(str(m) for m in pre)} " if pre else ""
+                post_mods = f" {' '.join(str(m) for m in post)}" if post else ""
 
-            return f"{static_str}{pre_mods}{ret_str}{self.name}({param_str}){post_mods}"
+                # If an explicit return type isn't found, the upstream demangler completely
+                # omits it for function symbols.
+                ret_str = f"{prim.function_return} " if prim.function_return else ""
+                param_str = (
+                    ", ".join([str(p) for p in prim.function_params])
+                    if prim.function_params
+                    else ""
+                )
 
-        return f"{static_str}{self.name} {self.type}"
+                return f"{static_str}{pre_mods}{ret_str}{self.name}({param_str}){post_mods}"
+            else:
+                return f"{static_str}{self.type} {self.name}"

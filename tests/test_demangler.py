@@ -22,13 +22,9 @@ class CaseData:
         except Exception as e:
             raise AssertionError(f"Failed on input `{self.input}`") from e
 
-        if not self.expected == actual:
-            raise AssertionError(
-                "\n"
-                f"Input:    {self.input}\n"
-                f"Expected: {self.expected}\n"
-                f"Actual:   {actual}\n"
-            )
+        assert self.expected == actual, (
+            "\n" f"Input:    {self.input}\n" f"Expected: {self.expected}\n" f"Actual:   {actual}\n"
+        )
 
 
 def test_basic():
@@ -256,6 +252,52 @@ def test_enum_argument():
         test.test()
 
 
+def test_backreferenced_types():
+    """
+    Verify that backreferenced "T" type codes are demangled as expected.
+    """
+    test_data = [
+        CaseData(
+            input="GetBarInfo__15iv2_6_VScrollerP13ivPerspectiveRiT2",
+            expected="iv2_6_VScroller::GetBarInfo(ivPerspective *, int &, int &)",
+            expected_no_params="iv2_6_VScroller::GetBarInfo",
+        ),
+        CaseData(
+            input="GetBarInfo__15iv2_6_VScrollerP13ivPerspectiveOiT2",
+            expected="iv2_6_VScroller::GetBarInfo(ivPerspective *, int &&, int &&)",
+            expected_no_params="iv2_6_VScroller::GetBarInfo",
+        ),
+        CaseData(
+            input="InsertToplevel__7ivWorldP12ivInteractorT1",
+            expected="ivWorld::InsertToplevel(ivInteractor *, ivInteractor *)",
+            expected_no_params="ivWorld::InsertToplevel",
+        ),
+        CaseData(
+            input="InsertToplevel__7ivWorldP12ivInteractorT1iiUi",
+            expected="ivWorld::InsertToplevel(ivInteractor *, ivInteractor *, int, int, unsigned int)",
+            expected_no_params="ivWorld::InsertToplevel",
+        ),
+        CaseData(
+            input="VConvert__9ivTSolverP12ivInteractorRP8TElementT2",
+            expected="ivTSolver::VConvert(ivInteractor *, TElement *&, TElement *&)",
+            expected_no_params="ivTSolver::VConvert",
+        ),
+        CaseData(
+            input="VConvert__9ivTSolverP7ivTGlueRP8TElement",
+            expected="ivTSolver::VConvert(ivTGlue *, TElement *&)",
+            expected_no_params="ivTSolver::VConvert",
+        ),
+        CaseData(
+            input="VOrder__9ivTSolverUiRP12ivInteractorT2",
+            expected="ivTSolver::VOrder(unsigned int, ivInteractor *&, ivInteractor *&)",
+            expected_no_params="ivTSolver::VOrder",
+        ),
+    ]
+
+    for test in test_data:
+        test.test()
+
+
 def test_operator_overload():
     """
     Verify that operator overloads are demangled correctly.
@@ -266,288 +308,362 @@ def test_operator_overload():
             expected="Fix16::operator*=(int)",
             expected_no_params="Fix16::operator*=",
         ),
+        CaseData(
+            input="__aa__3fooRT0",
+            expected="foo::operator&&(foo &)",
+            expected_no_params="foo::operator&&",
+        ),
+        CaseData(
+            input="__aad__3fooRT0",
+            expected="foo::operator&=(foo &)",
+            expected_no_params="foo::operator&=",
+        ),
+        CaseData(
+            input="__ad__3fooRT0",
+            expected="foo::operator&(foo &)",
+            expected_no_params="foo::operator&",
+        ),
+        CaseData(
+            input="__adv__3fooRT0",
+            expected="foo::operator/=(foo &)",
+            expected_no_params="foo::operator/=",
+        ),
+        CaseData(
+            input="__aer__3fooRT0",
+            expected="foo::operator^=(foo &)",
+            expected_no_params="foo::operator^=",
+        ),
+        CaseData(
+            input="__als__3fooRT0",
+            expected="foo::operator<<=(foo &)",
+            expected_no_params="foo::operator<<=",
+        ),
+        CaseData(
+            input="__amd__3fooRT0",
+            expected="foo::operator%=(foo &)",
+            expected_no_params="foo::operator%=",
+        ),
+        CaseData(
+            input="__ami__3fooRT0",
+            expected="foo::operator-=(foo &)",
+            expected_no_params="foo::operator-=",
+        ),
+        CaseData(
+            input="__aml__3FixRT0",
+            expected="Fix::operator*=(Fix &)",
+            expected_no_params="Fix::operator*=",
+        ),
+        CaseData(
+            input="__aml__5Fix32RT0",
+            expected="Fix32::operator*=(Fix32 &)",
+            expected_no_params="Fix32::operator*=",
+        ),
+        CaseData(
+            input="__aor__3fooRT0",
+            expected="foo::operator|=(foo &)",
+            expected_no_params="foo::operator|=",
+        ),
+        CaseData(
+            input="__apl__3fooRT0",
+            expected="foo::operator+=(foo &)",
+            expected_no_params="foo::operator+=",
+        ),
+        CaseData(
+            input="__ars__3fooRT0",
+            expected="foo::operator>>=(foo &)",
+            expected_no_params="foo::operator>>=",
+        ),
+        CaseData(
+            input="__as__3fooRT0",
+            expected="foo::operator=(foo &)",
+            expected_no_params="foo::operator=",
+        ),
+        CaseData(
+            input="__cl__3fooRT0",
+            expected="foo::operator()(foo &)",
+            expected_no_params="foo::operator()",
+        ),
+        CaseData(
+            input="__cl__6Normal",
+            expected="Normal::operator()(void)",
+            expected_no_params="Normal::operator()",
+        ),
+        CaseData(
+            input="__cl__6Stringii",
+            expected="String::operator()(int, int)",
+            expected_no_params="String::operator()",
+        ),
+        CaseData(
+            input="__cm__3fooRT0",
+            expected="foo::operator, (foo &)",
+            expected_no_params="foo::operator,",
+        ),
+        CaseData(
+            input="__co__3foo", expected="foo::operator~(void)", expected_no_params="foo::operator~"
+        ),
+        CaseData(
+            input="__dl__3fooPv",
+            expected="foo::operator delete(void *)",
+            expected_no_params="foo::operator delete",
+        ),
+        CaseData(
+            input="__dv__3fooRT0",
+            expected="foo::operator/(foo &)",
+            expected_no_params="foo::operator/",
+        ),
+        CaseData(
+            input="__eq__3fooRT0",
+            expected="foo::operator==(foo &)",
+            expected_no_params="foo::operator==",
+        ),
     ]
 
     for test in test_data:
         test.test()
 
 
-# [
-#     CaseData(
-#         input="GetBarInfo__15iv2_6_VScrollerP13ivPerspectiveRiT2",
-#         expected="iv2_6_VScroller::GetBarInfo(ivPerspective *, int &, int &)",
-#         expected_no_params="iv2_6_VScroller::GetBarInfo",
-#     ),
-#     CaseData(
-#         input="GetBarInfo__15iv2_6_VScrollerP13ivPerspectiveOiT2",
-#         expected="iv2_6_VScroller::GetBarInfo(ivPerspective *, int &&, int &&)",
-#         expected_no_params="iv2_6_VScroller::GetBarInfo",
-#     ),
-#     CaseData(
-#         input="InsertToplevel__7ivWorldP12ivInteractorT1",
-#         expected="ivWorld::InsertToplevel(ivInteractor *, ivInteractor *)",
-#         expected_no_params="ivWorld::InsertToplevel",
-#     ),
-#     CaseData(
-#         input="InsertToplevel__7ivWorldP12ivInteractorT1iiUi",
-#         expected="ivWorld::InsertToplevel(ivInteractor *, ivInteractor *, int, int, unsigned int)",
-#         expected_no_params="ivWorld::InsertToplevel",
-#     ),
-#     CaseData(
-#         input="VConvert__9ivTSolverP12ivInteractorRP8TElementT2",
-#         expected="ivTSolver::VConvert(ivInteractor *, TElement *&, TElement *&)",
-#         expected_no_params="ivTSolver::VConvert",
-#     ),
-#     CaseData(
-#         input="VConvert__9ivTSolverP7ivTGlueRP8TElement",
-#         expected="ivTSolver::VConvert(ivTGlue *, TElement *&)",
-#         expected_no_params="ivTSolver::VConvert",
-#     ),
-#     CaseData(
-#         input="VOrder__9ivTSolverUiRP12ivInteractorT2",
-#         expected="ivTSolver::VOrder(unsigned int, ivInteractor *&, ivInteractor *&)",
-#         expected_no_params="ivTSolver::VOrder",
-#     ),
-#     CaseData(
-#         input="_10PageButton$__both",
-#         expected="PageButton::__both",
-#         expected_no_params="PageButton::__both",
-#     ),
-#     CaseData(
-#         input="_3RNG$singleMantissa",
-#         expected="RNG::singleMantissa",
-#         expected_no_params="RNG::singleMantissa",
-#     ),
-#     CaseData(
-#         input="_5IComp$_release", expected="IComp::_release", expected_no_params="IComp::_release"
-#     ),
-#     CaseData(
-#         input="_$_10BitmapComp",
-#         expected="BitmapComp::~BitmapComp(void)",
-#         expected_no_params="BitmapComp::~BitmapComp",
-#     ),
-#     CaseData(
-#         input="_$_9__io_defs",
-#         expected="__io_defs::~__io_defs(void)",
-#         expected_no_params="__io_defs::~__io_defs",
-#     ),
-#     CaseData(
-#         input="_$_Q23foo3bar", expected="foo::bar::~bar(void)", expected_no_params="foo::bar::~bar"
-#     ),
-#     CaseData(
-#         input="_$_Q33foo3bar4bell",
-#         expected="foo::bar::bell::~bell(void)",
-#         expected_no_params="foo::bar::bell::~bell",
-#     ),
-#     CaseData(
-#         input="__10ivTelltaleiP7ivGlyph",
-#         expected="ivTelltale::ivTelltale(int, ivGlyph *)",
-#         expected_no_params="ivTelltale::ivTelltale",
-#     ),
-#     CaseData(
-#         input="__10ivViewportiP12ivInteractorUi",
-#         expected="ivViewport::ivViewport(int, ivInteractor *, unsigned int)",
-#         expected_no_params="ivViewport::ivViewport",
-#     ),
-#     CaseData(
-#         input="__10ostrstream",
-#         expected="ostrstream::ostrstream(void)",
-#         expected_no_params="ostrstream::ostrstream",
-#     ),
-#     CaseData(
-#         input="__10ostrstreamPcii",
-#         expected="ostrstream::ostrstream(char *, int, int)",
-#         expected_no_params="ostrstream::ostrstream",
-#     ),
-#     CaseData(
-#         input="__11BitmapTablei",
-#         expected="BitmapTable::BitmapTable(int)",
-#         expected_no_params="BitmapTable::BitmapTable",
-#     ),
-#     CaseData(
-#         input="__12ViewportCodeP12ViewportComp",
-#         expected="ViewportCode::ViewportCode(ViewportComp *)",
-#         expected_no_params="ViewportCode::ViewportCode",
-#     ),
-#     CaseData(
-#         input="__12iv2_6_Borderii",
-#         expected="iv2_6_Border::iv2_6_Border(int, int)",
-#         expected_no_params="iv2_6_Border::iv2_6_Border",
-#     ),
-#     CaseData(
-#         input="__12ivBreak_Listl",
-#         expected="ivBreak_List::ivBreak_List(long)",
-#         expected_no_params="ivBreak_List::ivBreak_List",
-#     ),
-#     CaseData(
-#         input="__14iv2_6_MenuItemiP12ivInteractor",
-#         expected="iv2_6_MenuItem::iv2_6_MenuItem(int, ivInteractor *)",
-#         expected_no_params="iv2_6_MenuItem::iv2_6_MenuItem",
-#     ),
-#     CaseData(
-#         input="__20DisplayList_IteratorR11DisplayList",
-#         expected="DisplayList_Iterator::DisplayList_Iterator(DisplayList &)",
-#         expected_no_params="DisplayList_Iterator::DisplayList_Iterator",
-#     ),
-#     CaseData(input="__3fooRT0", expected="foo::foo(foo &)", expected_no_params="foo::foo"),
-#     CaseData(
-#         input="__3fooiN31", expected="foo::foo(int, int, int, int)", expected_no_params="foo::foo"
-#     ),
-#     CaseData(
-#         input="__3fooiRT0iT2iT2",
-#         expected="foo::foo(int, foo &, int, foo &, int, foo &)",
-#         expected_no_params="foo::foo",
-#     ),
-#     CaseData(
-#         input="__6KeyMapPT0",
-#         expected="KeyMap::KeyMap(KeyMap *)",
-#         expected_no_params="KeyMap::KeyMap",
-#     ),
-#     CaseData(
-#         input="__8ArrowCmdP6EditorUiUi",
-#         expected="ArrowCmd::ArrowCmd(Editor *, unsigned int, unsigned int)",
-#         expected_no_params="ArrowCmd::ArrowCmd",
-#     ),
-#     CaseData(
-#         input="__9F_EllipseiiiiP7Graphic",
-#         expected="F_Ellipse::F_Ellipse(int, int, int, int, Graphic *)",
-#         expected_no_params="F_Ellipse::F_Ellipse",
-#     ),
-#     CaseData(
-#         input="__9FrameDataP9FrameCompi",
-#         expected="FrameData::FrameData(FrameComp *, int)",
-#         expected_no_params="FrameData::FrameData",
-#     ),
-#     CaseData(
-#         input="__9HVGraphicP9CanvasVarP7Graphic",
-#         expected="HVGraphic::HVGraphic(CanvasVar *, Graphic *)",
-#         expected_no_params="HVGraphic::HVGraphic",
-#     ),
-#     CaseData(
-#         input="__Q23foo3bar", expected="foo::bar::bar(void)", expected_no_params="foo::bar::bar"
-#     ),
-#     CaseData(
-#         input="__Q33foo3bar4bell",
-#         expected="foo::bar::bell::bell(void)",
-#         expected_no_params="foo::bar::bell::bell",
-#     ),
-#     CaseData(
-#         input="__aa__3fooRT0",
-#         expected="foo::operator&&(foo &)",
-#         expected_no_params="foo::operator&&",
-#     ),
-#     CaseData(
-#         input="__aad__3fooRT0",
-#         expected="foo::operator&=(foo &)",
-#         expected_no_params="foo::operator&=",
-#     ),
-#     CaseData(
-#         input="__ad__3fooRT0", expected="foo::operator&(foo &)", expected_no_params="foo::operator&"
-#     ),
-#     CaseData(
-#         input="__adv__3fooRT0",
-#         expected="foo::operator/=(foo &)",
-#         expected_no_params="foo::operator/=",
-#     ),
-#     CaseData(
-#         input="__aer__3fooRT0",
-#         expected="foo::operator^=(foo &)",
-#         expected_no_params="foo::operator^=",
-#     ),
-#     CaseData(
-#         input="__als__3fooRT0",
-#         expected="foo::operator<<=(foo &)",
-#         expected_no_params="foo::operator<<=",
-#     ),
-#     CaseData(
-#         input="__amd__3fooRT0",
-#         expected="foo::operator%=(foo &)",
-#         expected_no_params="foo::operator%=",
-#     ),
-#     CaseData(
-#         input="__ami__3fooRT0",
-#         expected="foo::operator-=(foo &)",
-#         expected_no_params="foo::operator-=",
-#     ),
-#     CaseData(
-#         input="__aml__3FixRT0",
-#         expected="Fix::operator*=(Fix &)",
-#         expected_no_params="Fix::operator*=",
-#     ),
-#     CaseData(
-#         input="__aml__5Fix32RT0",
-#         expected="Fix32::operator*=(Fix32 &)",
-#         expected_no_params="Fix32::operator*=",
-#     ),
-#     CaseData(
-#         input="__aor__3fooRT0",
-#         expected="foo::operator|=(foo &)",
-#         expected_no_params="foo::operator|=",
-#     ),
-#     CaseData(
-#         input="__apl__3fooRT0",
-#         expected="foo::operator+=(foo &)",
-#         expected_no_params="foo::operator+=",
-#     ),
-#     CaseData(
-#         input="__ars__3fooRT0",
-#         expected="foo::operator>>=(foo &)",
-#         expected_no_params="foo::operator>>=",
-#     ),
-#     CaseData(
-#         input="__as__3fooRT0", expected="foo::operator=(foo &)", expected_no_params="foo::operator="
-#     ),
-#     CaseData(
-#         input="__cl__3fooRT0",
-#         expected="foo::operator()(foo &)",
-#         expected_no_params="foo::operator()",
-#     ),
-#     CaseData(
-#         input="__cl__6Normal",
-#         expected="Normal::operator()(void)",
-#         expected_no_params="Normal::operator()",
-#     ),
-#     CaseData(
-#         input="__cl__6Stringii",
-#         expected="String::operator()(int, int)",
-#         expected_no_params="String::operator()",
-#     ),
-#     CaseData(
-#         input="__cm__3fooRT0",
-#         expected="foo::operator, (foo &)",
-#         expected_no_params="foo::operator,",
-#     ),
-#     CaseData(
-#         input="__co__3foo", expected="foo::operator~(void)", expected_no_params="foo::operator~"
-#     ),
-#     CaseData(
-#         input="__dl__3fooPv",
-#         expected="foo::operator delete(void *)",
-#         expected_no_params="foo::operator delete",
-#     ),
-#     CaseData(
-#         input="__dv__3fooRT0", expected="foo::operator/(foo &)", expected_no_params="foo::operator/"
-#     ),
-#     CaseData(
-#         input="__eq__3fooRT0",
-#         expected="foo::operator==(foo &)",
-#         expected_no_params="foo::operator==",
-#     ),
-# ]
+def test_constructor():
+    """
+    Verify that standard (non-global) constructors are demangled correctly.
+    """
+    test_data = [
+        CaseData(
+            input="__10ivTelltaleiP7ivGlyph",
+            expected="ivTelltale::ivTelltale(int, ivGlyph *)",
+            expected_no_params="ivTelltale::ivTelltale",
+        ),
+        CaseData(
+            input="__10ivViewportiP12ivInteractorUi",
+            expected="ivViewport::ivViewport(int, ivInteractor *, unsigned int)",
+            expected_no_params="ivViewport::ivViewport",
+        ),
+        CaseData(
+            input="__10ostrstream",
+            expected="ostrstream::ostrstream(void)",
+            expected_no_params="ostrstream::ostrstream",
+        ),
+        CaseData(
+            input="__10ostrstreamPcii",
+            expected="ostrstream::ostrstream(char *, int, int)",
+            expected_no_params="ostrstream::ostrstream",
+        ),
+        CaseData(
+            input="__11BitmapTablei",
+            expected="BitmapTable::BitmapTable(int)",
+            expected_no_params="BitmapTable::BitmapTable",
+        ),
+        CaseData(
+            input="__12ViewportCodeP12ViewportComp",
+            expected="ViewportCode::ViewportCode(ViewportComp *)",
+            expected_no_params="ViewportCode::ViewportCode",
+        ),
+        CaseData(
+            input="__12iv2_6_Borderii",
+            expected="iv2_6_Border::iv2_6_Border(int, int)",
+            expected_no_params="iv2_6_Border::iv2_6_Border",
+        ),
+        CaseData(
+            input="__12ivBreak_Listl",
+            expected="ivBreak_List::ivBreak_List(long)",
+            expected_no_params="ivBreak_List::ivBreak_List",
+        ),
+        CaseData(
+            input="__14iv2_6_MenuItemiP12ivInteractor",
+            expected="iv2_6_MenuItem::iv2_6_MenuItem(int, ivInteractor *)",
+            expected_no_params="iv2_6_MenuItem::iv2_6_MenuItem",
+        ),
+        CaseData(
+            input="__20DisplayList_IteratorR11DisplayList",
+            expected="DisplayList_Iterator::DisplayList_Iterator(DisplayList &)",
+            expected_no_params="DisplayList_Iterator::DisplayList_Iterator",
+        ),
+        CaseData(input="__3fooRT0", expected="foo::foo(foo &)", expected_no_params="foo::foo"),
+        CaseData(
+            input="__3fooiN31",
+            expected="foo::foo(int, int, int, int)",
+            expected_no_params="foo::foo",
+        ),
+        CaseData(
+            input="__3fooiRT0iT2iT2",
+            expected="foo::foo(int, foo &, int, foo &, int, foo &)",
+            expected_no_params="foo::foo",
+        ),
+        CaseData(
+            input="__6KeyMapPT0",
+            expected="KeyMap::KeyMap(KeyMap *)",
+            expected_no_params="KeyMap::KeyMap",
+        ),
+        CaseData(
+            input="__8ArrowCmdP6EditorUiUi",
+            expected="ArrowCmd::ArrowCmd(Editor *, unsigned int, unsigned int)",
+            expected_no_params="ArrowCmd::ArrowCmd",
+        ),
+        CaseData(
+            input="__9F_EllipseiiiiP7Graphic",
+            expected="F_Ellipse::F_Ellipse(int, int, int, int, Graphic *)",
+            expected_no_params="F_Ellipse::F_Ellipse",
+        ),
+        CaseData(
+            input="__9FrameDataP9FrameCompi",
+            expected="FrameData::FrameData(FrameComp *, int)",
+            expected_no_params="FrameData::FrameData",
+        ),
+        CaseData(
+            input="__9HVGraphicP9CanvasVarP7Graphic",
+            expected="HVGraphic::HVGraphic(CanvasVar *, Graphic *)",
+            expected_no_params="HVGraphic::HVGraphic",
+        ),
+        CaseData(
+            input="__Q23foo3bar", expected="foo::bar::bar(void)", expected_no_params="foo::bar::bar"
+        ),
+        CaseData(
+            input="__Q33foo3bar4bell",
+            expected="foo::bar::bell::bell(void)",
+            expected_no_params="foo::bar::bell::bell",
+        ),
+    ]
 
-# TEST_DATA_FILE = Path("tests/test_data.json")
+    for test in test_data:
+        test.test()
 
-# def test_demangler():
+
+def test_destructor():
+    """
+    Verify that standard (non-global) destructors are demangled correctly.
+    """
+    test_data = [
+        CaseData(
+            input="_$_10BitmapComp",
+            expected="BitmapComp::~BitmapComp(void)",
+            expected_no_params="BitmapComp::~BitmapComp",
+        ),
+        CaseData(
+            input="_$_9__io_defs",
+            expected="__io_defs::~__io_defs(void)",
+            expected_no_params="__io_defs::~__io_defs",
+        ),
+        CaseData(
+            input="_$_Q23foo3bar",
+            expected="foo::bar::~bar(void)",
+            expected_no_params="foo::bar::~bar",
+        ),
+        CaseData(
+            input="_$_Q33foo3bar4bell",
+            expected="foo::bar::bell::~bell(void)",
+            expected_no_params="foo::bar::bell::~bell",
+        ),
+    ]
+
+    for test in test_data:
+        test.test()
+
+
+def test_type_info():
+    """
+    Verify that type info symbols are demangled correctly.
+    """
+    test_data = [
+        CaseData(
+            input="__tiv", expected="void type_info node", expected_no_params="void type_info node"
+        ),
+        CaseData(
+            input="__tiUs",
+            expected="unsigned short type_info node",
+            expected_no_params="unsigned short type_info node",
+        ),
+        CaseData(
+            input="__tiSc",
+            expected="signed char type_info node",
+            expected_no_params="static char type_info node",
+        ),
+        CaseData(
+            input="__ti9type_info",
+            expected="type_info type_info node",
+            expected_no_params="type_info type_info node",
+        ),
+        CaseData(
+            input="__ti19__builtin_type_info",
+            expected="__builtin_type_info type_info node",
+            expected_no_params="__builtin_type_info type_info node",
+        ),
+        CaseData(
+            input="__tiQ210Pedestrian8Strategy",
+            expected="Pedestrian::Strategy type_info node",
+            expected_no_params="Pedestrian::Strategy type_info node",
+        ),
+        CaseData(
+            input="__tf13bad_exception",
+            expected="bad_exception type_info function",
+            expected_no_params="bad_exception type_info function",
+        ),
+        CaseData(
+            input="__tf17__class_type_info",
+            expected="__class_type_info type_info function",
+            expected_no_params="__class_type_info type_info function",
+        ),
+        CaseData(
+            input="__tfUx",
+            expected="unsigned long long type_info function",
+            expected_no_params="unsigned long long type_info function",
+        ),
+    ]
+
+    for test in test_data:
+        test.test()
+
+
+def test_global_xtors():
+    """
+    Verify that global constructors and destructors are demangled correctly.
+    """
+    test_data = [
+        CaseData(
+            input="_GLOBAL_$I$_10Pedestrian$s_animConfig",
+            expected="global constructors keyed to Pedestrian::s_animConfig",
+            expected_no_params="global constructors keyed to Pedestrian::s_animConfig",
+        ),
+        CaseData(
+            input="_GLOBAL_$D$hudInfo",
+            expected="global destructors keyed to hudInfo",
+            expected_no_params="global destructors keyed to hudInfo",
+        ),
+        CaseData(
+            input="_GLOBAL_$I$hudInfo",
+            expected="global constructors keyed to hudInfo",
+            expected_no_params="global constructors keyed to hudInfo",
+        ),
+        CaseData(
+            input="_GLOBAL_$I$__Q27CsColor4Data",
+            expected="global constructors keyed to CsColor::Data::Data",
+            expected_no_params="global constructors keyed to CsColor::Data::Data",
+        ),
+    ]
+
+    for test in test_data:
+        test.test()
+
+
+# def test_static_data():
 #     """
-#     Run the original GNU demangler test suite from binutils and verify each
-#     symbol is demangled to the expected name/parameters.
+#     Verify that static data fields are demangled correctly.
 #     """
-
-#     with TEST_DATA_FILE.open("r") as f:
-#         test_data: list[dict[str, str]] = json.load(f)
+#     test_data = [
+#         CaseData(
+#             input="_10PageButton$__both",
+#             expected="PageButton::__both",
+#             expected_no_params="PageButton::__both",
+#         ),
+#         CaseData(
+#             input="_3RNG$singleMantissa",
+#             expected="RNG::singleMantissa",
+#             expected_no_params="RNG::singleMantissa",
+#         ),
+#         CaseData(
+#             input="_5IComp$_release",
+#             expected="IComp::_release",
+#             expected_no_params="IComp::_release",
+#         ),
+#     ]
 
 #     for test in test_data:
-#         # The test data only contains valid demangler cases right now, so we should
-#         # fail if exceptions occur.
-#         actual = str(parse(test["input"]))
-#         assert test["expected"] == actual
+#         test.test()
