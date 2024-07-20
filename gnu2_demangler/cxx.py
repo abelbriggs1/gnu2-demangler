@@ -347,6 +347,13 @@ class CxxTerm:
         else:
             return str(self.kind)
 
+    @staticmethod
+    def make_name(qualified_name: list[CxxName]) -> "CxxTerm":
+        """
+        Convenience method for creating a CxxTerm with a `QUALIFIED` kind.
+        """
+        return CxxTerm(kind=CxxTerm.Kind.QUALIFIED, qualified_name=qualified_name)
+
 
 @dataclass
 class CxxType:
@@ -491,10 +498,9 @@ class CxxSymbol:
     is_type_info_func: bool = False
     is_vtable: bool = False
     is_static: bool = False
-    is_constructor: bool = False
-    is_destructor: bool = False
+    is_global_constructor: bool = False
+    is_global_destructor: bool = False
     is_dll_imported: bool = False
-    is_global: bool = False
     is_virtual_thunk: bool = False
     vthunk_delta: Optional[int] = None
 
@@ -507,8 +513,8 @@ class CxxSymbol:
             self.is_type_info_node,
             self.is_type_info_func,
             self.is_vtable,
-            self.is_constructor,
-            self.is_destructor,
+            self.is_global_constructor,
+            self.is_global_destructor,
             self.is_virtual_thunk,
             self.is_dll_imported,
         ]
@@ -533,22 +539,21 @@ class CxxSymbol:
         """
         Determine if this is a global constructor/destructor symbol.
         """
-        return self.is_global and (self.is_constructor or self.is_destructor)
+        return self.is_global_constructor or self.is_global_destructor
 
     def __str__(self) -> str:
         """
         Format this demangled symbol as a string with the goal of matching the output
         of upstream GNU's demangler.
         """
-        if self.type is None:
-            # Format any prefix strings.
-            prefix_str = ""
-            if self.is_global_xtor():
-                xtor = "constructors" if self.is_constructor else "destructors"
-                prefix_str = f"global {xtor} keyed to "
-            elif self.is_dll_imported:
-                prefix_str = "import stub for "
+        prefix_str = ""
+        if self.is_global_xtor():
+            xtor = "constructors" if self.is_global_constructor else "destructors"
+            prefix_str = f"global {xtor} keyed to "
+        elif self.is_dll_imported:
+            prefix_str = "import stub for "
 
+        if self.type is None:
             # Format any suffix strings.
             suffix_str = ""
             if self.is_vtable:
@@ -573,6 +578,6 @@ class CxxSymbol:
                     else ""
                 )
 
-                return f"{static_str}{pre_mods}{ret_str}{self.name}({param_str}){post_mods}"
+                return f"{prefix_str}{static_str}{pre_mods}{ret_str}{self.name}({param_str}){post_mods}"
             else:
-                return f"{static_str}{self.type} {self.name}"
+                return f"{prefix_str}{static_str}{self.type} {self.name}"

@@ -634,8 +634,8 @@ def test_global_xtors():
         ),
         CaseData(
             input="_GLOBAL_$I$__Q27CsColor4Data",
-            expected="global constructors keyed to CsColor::Data::Data",
-            expected_no_params="global constructors keyed to CsColor::Data::Data",
+            expected="global constructors keyed to CsColor::Data::Data(void)",
+            expected_no_params="global constructors keyed to CsColor::Data::Data(void)",
         ),
     ]
 
@@ -643,27 +643,53 @@ def test_global_xtors():
         test.test()
 
 
-# def test_static_data():
-#     """
-#     Verify that static data fields are demangled correctly.
-#     """
-#     test_data = [
-#         CaseData(
-#             input="_10PageButton$__both",
-#             expected="PageButton::__both",
-#             expected_no_params="PageButton::__both",
-#         ),
-#         CaseData(
-#             input="_3RNG$singleMantissa",
-#             expected="RNG::singleMantissa",
-#             expected_no_params="RNG::singleMantissa",
-#         ),
-#         CaseData(
-#             input="_5IComp$_release",
-#             expected="IComp::_release",
-#             expected_no_params="IComp::_release",
-#         ),
-#     ]
+def test_static_data():
+    """
+    Verify that static data fields are demangled correctly.
+    """
+    test_data = [
+        CaseData(
+            input="_10PageButton$__both",
+            expected="PageButton::__both",
+            expected_no_params="PageButton::__both",
+        ),
+        CaseData(
+            input="_3RNG$singleMantissa",
+            expected="RNG::singleMantissa",
+            expected_no_params="RNG::singleMantissa",
+        ),
+        CaseData(
+            input="_5IComp$_release",
+            expected="IComp::_release",
+            expected_no_params="IComp::_release",
+        ),
+    ]
 
-#     for test in test_data:
-#         test.test()
+    for test in test_data:
+        test.test()
+
+
+def test_vtable():
+    """
+    Verify that virtual table symbols are demangled correctly.
+    """
+    test_data = [
+        CaseData(
+            input="_vt$10AttractPed",
+            expected="AttractPed virtual table",
+            expected_no_params="AttractPed virtual table",
+        ),
+        CaseData(
+            input="_vt$14CorpseStrategy",
+            expected="CorpseStrategy virtual table",
+            expected_no_params="CorpseStrategy virtual table",
+        ),
+        CaseData(
+            input="_vt$17__array_type_info",
+            expected="__array_type_info virtual table",
+            expected_no_params="__array_type_info virtual table",
+        ),
+    ]
+
+    for test in test_data:
+        test.test()

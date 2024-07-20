@@ -80,13 +80,14 @@ class GNU2Demangler:
         self._btypes: list[CxxTerm] = []
         self._ktypes: list[CxxName] = []
         self._typevec: list[CxxType] = []
-        # Flags that are maintained for the output symbol
+        # Flags that are maintained for the top-level output symbol.
         self._vtable: bool = False
-        self._constructor: bool = False
-        self._destructor: bool = False
-        self._global: bool = False
         self._static_type: bool = False
         self._dll_imported: bool = False
+        # Nesting level for certain fields.
+        # These are used inside of the parser.
+        self._ctor: int = 0
+        self._dtor: int = 0
 
     def _parse(self, src: TextIOBase) -> CxxSymbol:
         """
@@ -94,19 +95,19 @@ class GNU2Demangler:
         """
         # This function may be called recursively in some special cases. Save and
         # clear certain variables for recursive calls.
-        old_ctor = self._constructor
-        old_dtor = self._destructor
+        old_ctor = self._ctor
+        old_dtor = self._dtor
         old_static = self._static_type
         self._dll_imported = False
-        self._constructor = False
-        self._destructor = False
+        self._ctor = 0
+        self._dtor = 0
 
         base_name: Optional[CxxTerm] = None
         base: int = src.tell()
         try:
             # Try to demangle special cases.
             result = self._gnu_special(src)
-        except:  # noqa
+        except Exception as e:  # noqa
             # Either demangling a special case failed, or we don't have any
             # special cases.
             # Reset the buffer and parser state to remove bogus work.
@@ -131,8 +132,8 @@ class GNU2Demangler:
 
         # Restore the state of the parser before this call (in case this was called
         # recursively).
-        self._constructor = old_ctor
-        self._destructor = old_dtor
+        self._ctor = old_ctor
+        self._dtor = old_dtor
         self._static_type = old_static
 
         return sym
@@ -200,7 +201,7 @@ class GNU2Demangler:
         if prefix.kind == Special.Kind.DTOR:
             # GNU-style destructor. Get past the `_[MARKER]_`.
             read_exact(src, len(prefix.content))
-            self._destructor = True
+            self._dtor += 1
             return None
 
         elif prefix.kind == Special.Kind.VTABLE:
@@ -223,7 +224,7 @@ class GNU2Demangler:
                     length = read_number(src)
                     # GNU does not throw an error if the length is too big here,
                     # since we could be seeing a `.(digits)` static local symbol.
-                    if length < bytes_left(src):
+                    if length <= bytes_left(src):
                         name.add_base_name(CxxName(src.read(length)))
 
                 else:
@@ -236,7 +237,7 @@ class GNU2Demangler:
                 # We should now be pointing either to a marker or to the end of the
                 # buffer.
                 next_char = peek(src)
-                next = Token.from_char(src)
+                next = Token.from_char(next_char)
                 assert (
                     not next_char or next.is_marker()
                 ), f"Expected end of buffer or marker token after demangling part of qualified vtable name, got {next}!"
@@ -251,6 +252,7 @@ class GNU2Demangler:
         elif prefix.kind == Special.Kind.STATIC_DATA:
             # Static data. Get past the underscore prefix.
             read_exact(src, len(prefix.content))
+            self._static_type = True
 
             # Read the next name.
             next = Token.peek(src)
@@ -357,12 +359,13 @@ class GNU2Demangler:
         else:
             special = Special.peek_for_global(src)
             if special is not None:
-                self._global = True
-                self._constructor = special.kind == Special.Kind.GLOBAL_CTOR
-                self._destructor = special.kind == Special.Kind.GLOBAL_DTOR
+                if special.kind == Special.Kind.GLOBAL_CTOR:
+                    self._ctor = 2
+                elif special.kind == Special.Kind.GLOBAL_DTOR:
+                    self._dtor = 2
 
                 # This may be a global constructor/destructor.
-                if self._constructor or self._destructor:
+                if self._ctor == 2 or self._dtor == 2:
                     read_exact(src, len(special.content))
                     # Try to invoke the GNU special case demangler.
                     try:
@@ -398,7 +401,7 @@ class GNU2Demangler:
                 or after_dunder.is_template_start()
             ):
                 # This is a GNU-style constructor.
-                self._constructor = True
+                self._ctor += 1
                 # Consume the two underscores.
                 read_exact(src, 2)
 
@@ -434,7 +437,7 @@ class GNU2Demangler:
                     qualified_name=[self._iterate_demangle_function(src, dunder_offset)],
                 )
 
-        if self._global and (self._constructor or self._destructor):
+        if self._ctor == 2 or self._dtor == 2:
             # If we haven't hit any of the other cases and this is a global x-tor,
             # just add the rest of the buffer as the global constructor/destructor name.
             return CxxTerm(kind=CxxTerm.Kind.QUALIFIED, qualified_name=[CxxName(src.read())])
@@ -487,11 +490,19 @@ class GNU2Demangler:
                 elif next.is_digit():
                     # Class name.
                     name = self._demangle_class(src)
-                    name_term.add_qualifying_name(name)
                     # Remember the mangled type we just parsed.
-                    self._remember_type(
-                        CxxType(terms=[CxxTerm(kind=CxxTerm.Kind.QUALIFIED, qualified_name=[name])])
-                    )
+                    self._remember_type(CxxType(terms=[copy.deepcopy(name)]))
+
+                    # Consume constructor/destructor flags if needed.
+                    if self._ctor & 1:
+                        name.add_base_name(CxxTerm.make_name([name.get_base_name()]))
+                        self._ctor -= 1
+                    elif self._dtor & 1:
+                        name.add_base_name(
+                            CxxTerm.make_name([CxxName(name=f"~{name.get_base_name().name}")])
+                        )
+                        self._dtor -= 1
+                    name_term.qualify_with(name)
 
                     if not Token.peek(src).is_function():
                         expect_func = True
@@ -535,7 +546,7 @@ class GNU2Demangler:
                     name_term.add_qualifying_name(
                         self._demangle_template(src, is_type=False, remember=False)
                     )
-                    if not self._constructor:
+                    if not (self._ctor & 1):
                         expect_return_type = True
                     if not peek(src):
                         raise ValueError("Expected a return type for template function!")
@@ -585,23 +596,14 @@ class GNU2Demangler:
                 base_name is not None
             ), "Empty buffer for signature, but base symbol name is unknown!"
 
-        if not self._global and (self._constructor or self._destructor):
-            # If we're a non-global x-tor, duplicate the innermost qualifying class name
-            # to become the x-tor function name.
-            xtor_name = copy.deepcopy(name_term.get_base_name())
-            if self._destructor:
-                xtor_name.name = f"~{xtor_name.name}"
-            name_term.add_base_name(xtor_name)
-
         return CxxSymbol(
             name=name_term,
             type=final_type,
             is_vtable=self._vtable,
             is_static=self._static_type,
-            is_constructor=self._constructor,
-            is_destructor=self._destructor,
+            is_global_constructor=self._ctor == 2,
+            is_global_destructor=self._dtor == 2,
             is_dll_imported=self._dll_imported,
-            is_global=self._global,
         )
 
     def _demangle_args(self, src: TextIOBase) -> list[CxxType]:
@@ -819,7 +821,7 @@ class GNU2Demangler:
         destructor function, an appropriate constructor/destructor name will be
         appended.
         """
-        # is_xtor_function: bool = is_funcname and (self._constructor or self._destructor)
+        is_xtor_function: bool = is_funcname and ((self._ctor & 1) or (self._dtor & 1))
         name_term: CxxTerm = CxxTerm(kind=CxxTerm.Kind.QUALIFIED)
         num_quali_names: int = 0
 
@@ -878,11 +880,17 @@ class GNU2Demangler:
 
         self._remember_btype(name_term)
 
-        # # If the result is a *tor, we need to append the name of the innermost class
-        # # as the function name.
-        # if is_xtor_function:
-        #     extra = "~" if self._destructor else ""
-        #     name_term.add_base_name(CxxName(f"{extra}{name.name}"))
+        # If the result is a *tor, we need to append the name of the innermost class
+        # as the function name.
+        # TODO: Upstream doesn't consume ctor/dtor flags here for some reason?
+        if is_xtor_function:
+            if self._ctor & 1:
+                extra = ""
+                self._ctor -= 1
+            else:
+                extra = "~"
+                self._dtor -= 1
+            name_term.add_base_name(CxxName(f"{extra}{name.name}"))
 
         return name_term
 
@@ -922,23 +930,16 @@ class GNU2Demangler:
 
         return CxxType(terms)
 
-    def _demangle_class(self, src: TextIOBase) -> CxxName:
+    def _demangle_class(self, src: TextIOBase) -> CxxTerm:
         """
         Demangle a class name and save it as a remembered k/btype.
-
-        If constructor/destructor flags are set, they will be consumed here.
         """
         name: CxxName = self._demangle_class_name(src)
-        # if self._constructor or self._destructor:
-        #     if self._destructor:
-        #         name.name = f"~{name.name}"
-        #         self._destructor = False
-        #     else:
-        #         self._constructor = False
+        term = CxxTerm.make_name([name])
 
         self._remember_ktype(name)
         self._remember_btype(name)
-        return name
+        return term
 
     def _demangle_quali_spec_terms(self, src: TextIOBase) -> list[CxxTerm]:
         """
