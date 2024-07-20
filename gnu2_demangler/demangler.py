@@ -1,8 +1,8 @@
 """
 Demangler for GNU v2 C++ symbols.
 
-This implementation is based on the C implementation of the original GNU v2 demangler
-from upstream GCC 13.2.0, before its removal.
+This implementation is effectively a Python port of the C implementation of
+the original GNU v2 demangler from upstream GCC 13.2.0, before its removal.
 """
 
 import copy
@@ -84,8 +84,10 @@ class GNU2Demangler:
         self._vtable: bool = False
         self._static_type: bool = False
         self._dll_imported: bool = False
-        # Nesting level for certain fields.
-        # These are used inside of the parser.
+        # Instead of flags, constructor/destructor status are maintained as integers
+        # to properly handle nesting.
+        # Bit 1 represents whether we're demangling a global x-tor.
+        # Bit 0 represents whether we're demangling a x-tor.
         self._ctor: int = 0
         self._dtor: int = 0
 
@@ -1022,8 +1024,8 @@ def parse(mangled: str) -> CxxSymbol:
     return result
 
 
-# def demangle(mangled: str) -> str:
-#     try:
-#         return str(parse(mangled))
-#     except ValueError:
-#         return mangled
+def demangle(mangled: str) -> str:
+    try:
+        return str(parse(mangled))
+    except ValueError:
+        return mangled
