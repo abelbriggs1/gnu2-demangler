@@ -3,7 +3,9 @@ Module implementing C++ type abstractions.
 """
 
 import collections
+import copy
 from dataclasses import dataclass, field
+from enum import Enum
 from itertools import islice
 from typing import Generator, Iterable, List, Optional, TypeVar, Union
 
@@ -351,24 +353,23 @@ class CxxTerm:
 
     def __str__(self) -> str:
         """
-        Print this term as a C token.
+        Print this term as a C token or declarator if possible.
         """
+
         if self.kind.is_array():
             # Format array dimension.
             assert self.array_dim is not None
             return f"[{self.array_dim}]"
 
         elif self.kind.is_function():
-            # Format as function pointer.
-            # Upstream demangler omits `void` return types for function symbols,
-            # but since we're treating this as a function pointer, we want to include it.
-            ret_str = f"{self.function_return} " if self.function_return else "void "
+            # Format as a function declarator for the convenience of `CxxType.__str__()`.
+            # This means we only print the parameters.
             param_str = (
                 ", ".join([str(p) for p in self.function_params])
                 if self.function_params
                 else "void"
             )
-            return f"{ret_str}(*)({param_str})"
+            return f"({param_str})"
 
         elif self.kind.is_qualified_name():
             # Format qualified name.
@@ -390,6 +391,183 @@ class CxxTerm:
         return CxxTerm(kind=CxxTerm.Kind.QUALIFIED, qualified_name=qualified_name)
 
 
+@dataclass(frozen=True)
+class CxxDeclComponent:
+    """
+    Convenience dataclass for grouping terms into C++ "declarator" components.
+    This is a minimal API for the declarator rules from the C++ grammar.
+    """
+
+    class Kind(Enum):
+        # Sequence of specifiers ending in a primitive type.
+        SPECIFIER_SEQ = 0
+        # Named identifier.
+        IDENTIFIER = 1
+        # Pointer with optional CV qualifiers.
+        POINTER = 2
+        # Pointer to member, with optional CV qualifiers.
+        POINTER_TO_MEMBER = 3
+        # L-value reference.
+        LVALUE_REF = 4
+        # R-value reference.
+        RVALUE_REF = 5
+        # Array.
+        ARRAY = 6
+        # Function with optional trailing CV qualifiers.
+        FUNCTION = 7
+
+        def is_pointer(self) -> bool:
+            return self in [CxxDeclComponent.Kind.POINTER, CxxDeclComponent.Kind.POINTER_TO_MEMBER]
+
+        def is_ref(self) -> bool:
+            return self in [CxxDeclComponent.Kind.LVALUE_REF, CxxDeclComponent.Kind.RVALUE_REF]
+
+        def is_specifier_seq(self) -> bool:
+            return self == CxxDeclComponent.Kind.SPECIFIER_SEQ
+
+        def is_ptr_or_ref(self) -> bool:
+            return self.is_pointer() or self.is_ref()
+
+        def is_noptr_declarator(self) -> bool:
+            return self in [CxxDeclComponent.Kind.ARRAY, CxxDeclComponent.Kind.FUNCTION]
+
+    kind: Kind
+    terms: list[CxxTerm]
+
+    def apply(
+        self, cur_decl_content: Optional[str] = None, prev_decl: Optional["CxxDeclComponent"] = None
+    ) -> str:
+        """
+        Apply this declarator recursively to the result of a previous declaration.
+
+        If `cur_decl_content` is `None`, the returned result will be the same as
+        `str(self)`.
+        `prev_decl`, if provided, should be the last `CxxDeclComponent` that was applied
+        to the given `cur_decl_content`. This is relevant for several declarators that
+        require parentheses based on the result of the previous declarator.
+        """
+        if cur_decl_content is None:
+            cur_decl_content = ""
+
+        # Get the base decl string without any special handling.
+        base_decl = str(self)
+
+        if self.kind.is_noptr_declarator():
+            if prev_decl is not None and prev_decl.kind.is_ptr_or_ref():
+                # This declarator requires the previous pointer/ref declarator
+                # to be surrounded in parentheses.
+                cur_decl_content = f"({cur_decl_content})"
+
+        result: str = None
+        if self.kind == CxxDeclComponent.Kind.IDENTIFIER:
+            # An ID can only be the first decl in an `apply()` sequence, because
+            # it forces a nested declarator to terminate.
+            assert not (
+                cur_decl_content or prev_decl
+            ), "Identifiers can only be printed as the first decl. in a sequence."
+            result = base_decl
+        elif self.kind.is_ptr_or_ref() or self.kind.is_specifier_seq():
+            # Print on the left side of the old decl.
+            # Add whitespace between this and the prev. decl if we're printing
+            # a base type.
+            extra_space = " " if self.kind.is_specifier_seq() and prev_decl is not None else ""
+            result = f"{base_decl}{extra_space}{cur_decl_content}"
+        else:
+            # Print on the right side of the old decl.
+            result = f"{cur_decl_content}{base_decl}"
+
+        return result
+
+    @staticmethod
+    def from_type(
+        typ: "CxxType", identifier: Optional["CxxTerm"] = None
+    ) -> list["CxxDeclComponent"]:
+        """
+        Given a type and optional identifier which the type applies to, partition
+        the type's terms into a list of `CxxDeclComponent`s. The returned list of components can
+        be iterated and applied to create a valid C++ declaration.
+        """
+        decl: list[CxxDeclComponent] = []
+
+        if identifier:
+            # Prepend the identifier to the list as a component.
+            assert (
+                identifier.kind.is_qualified_name()
+            ), "Identifier for decl must be qualified name."
+            decl.append(CxxDeclComponent(kind=CxxDeclComponent.Kind.IDENTIFIER, terms=[identifier]))
+
+        i: int = 0
+        kind: CxxDeclComponent.Kind = None
+        terms_queue: list[CxxTerm] = copy.copy(typ.terms)
+        decl_queue: list[CxxTerm] = []
+
+        # Iterate through the list of terms, partitioning into decl components.
+        while i < len(terms_queue):
+            this_term = terms_queue[i]
+            decl_queue.append(this_term)
+
+            # If we're on a "terminating" term, map it to the decl we want to create.
+            # TODO: Handle pointer to member whenever we actually support that
+            # in the demangler...
+            if this_term.kind.is_pointer():
+                kind = CxxDeclComponent.Kind.POINTER
+            elif this_term.kind.is_array():
+                kind = CxxDeclComponent.Kind.ARRAY
+            elif this_term.kind == CxxTerm.Kind.LVALUE_REFERENCE:
+                kind = CxxDeclComponent.Kind.LVALUE_REF
+            elif this_term.kind == CxxTerm.Kind.RVALUE_REFERENCE:
+                kind = CxxDeclComponent.Kind.RVALUE_REF
+            elif (
+                this_term.kind.is_arithmetic_type()
+                or this_term.kind.is_void()
+                or this_term.kind.is_qualified_name()
+            ):
+                kind = CxxDeclComponent.Kind.SPECIFIER_SEQ
+            elif this_term.kind.is_function():
+                kind = CxxDeclComponent.Kind.FUNCTION
+                # Immediately read any CV qualifiers after the function decl.
+                if i + 1 < len(terms_queue) and terms_queue[i + 1].kind.is_cv_qualifier():
+                    # Start reading CV qualifiers with the next term.
+                    i += 1
+                    while i < len(terms_queue) and terms_queue[i].kind.is_cv_qualifier():
+                        decl_queue.append(terms_queue[i])
+                        i += 1
+
+            if kind is not None:
+                # Create the decl from the queue of decl terms, then clear the queue.
+                decl.append(CxxDeclComponent(kind=kind, terms=copy.copy(decl_queue)))
+                decl_queue.clear()
+
+                # If we just created a function component, process its return type
+                # immediately and append its components.
+                if this_term.kind.is_function() and this_term.function_return is not None:
+                    decl.extend(CxxDeclComponent.from_type(typ=this_term.function_return))
+
+                kind = None
+
+            i += 1
+
+        assert (
+            len(decl_queue) == 0
+        ), "Decl. queue not empty after loop ended! Is there a misplaced CV qualifier?"
+
+        return decl
+
+    def __str__(self) -> str:
+        """
+        Print this decl as a string without any context.
+        """
+        terms_to_print = self.terms
+
+        if self.kind.is_pointer():
+            # Print terms in reverse order so CV qualifiers appear on the right side
+            # instead of the left, as defined by the C++ grammar.
+            # Example: "[CONST, POINTER]" prints as `* const`.
+            terms_to_print.reverse()
+
+        return " ".join(str(t) for t in terms_to_print)
+
+
 @dataclass
 class CxxType:
     """
@@ -399,9 +577,15 @@ class CxxType:
     FUNCTION. Working from the end, each previous term modifies the type.
     (This order matches the order in the mangled type)
 
-    Example:
+    Examples:
         `[CONST, POINTER, CHAR]` => "char * const"
+                                 => "const pointer to char"
+
         `[POINTER, CONST, CHAR]` => "char const *"
+                                 => "pointer to const char"
+
+        `[POINTER, FUNCTION]`    => "[FUNC_RET_TYPE] (*)([FUNC_PARAMS])"
+                                 => "pointer to function(FUNC_PARAMS) returning [FUNC_RET_TYPE]"
     """
 
     terms: List[CxxTerm] = field(default_factory=list)
@@ -428,70 +612,6 @@ class CxxType:
 
         return None
 
-    def get_ordered_declaration(self) -> tuple[list[CxxTerm], CxxTerm, list[CxxTerm]]:
-        """
-        Get a sequence of tokens/terms which, when printed from left to right, can be
-        feasibly converted to a C/C++ type.
-
-        The returned tuple has the following members:
-        - The first element is a list of all "modifier" CxxTerms that come before the
-          primitive type.
-        - The second element is the primitive type CxxTerm.
-        - The third element is a list of all "modifier" CxxTerms that come after the
-          primitive type.
-
-        If this is a non-function type, the pre-modifier terms will be reordered to
-        follow typical C/C++ standards for type declarations.
-
-        Examples:
-            `CPCUi` ==> [CONST, POINTER, CONST, UNSIGNED, INT]
-                    ==> `int unsigned const * const` (when read normally)
-
-                    ==> ([CONST, UNSIGNED], INT, [POINTER, CONST])
-                    ==> `const unsigned int * const` (as a proper C declaration)
-
-            `GetBgColor__C9ivPainter` ==> [FUNCTION, CONST]
-                                      ==> ivPainter::GetBgColor(void) const
-
-                                      ==> ([], FUNCTION, [CONST])
-                                      ==> ivPainter::GetBgColor(void) const
-        """
-        prim_idx: int = self._primitive_type_index()
-        prim = self.terms[prim_idx]
-
-        if prim.kind.is_function():
-            # We can just split the list as-is.
-            return (self.terms[:prim_idx], prim, self.terms[prim_idx + 1 :])
-
-        # Otherwise, this is some kind of (qualified) fundamental type whose declaration
-        # is in reverse order of the tokens.
-        # The primitive type should always be the last element in this case.
-        assert prim_idx == len(self.terms) - 1
-
-        # Iterate downward until we encounter a memory type, starting after the
-        # primitive type.
-        split: int = prim_idx
-        while split > 0 and not self.terms[split - 1].kind.is_memory_type():
-            split -= 1
-
-        # `split` now points to the first left-side term, and points just past the
-        # end of the right-side terms.
-        left_terms = self.terms[split:prim_idx]
-        right_terms = self.terms[:split]
-        # Reverse this for accurate ordering.
-        right_terms.reverse()
-
-        return (left_terms, prim, right_terms)
-
-    def pre_specifiers(self) -> list[CxxTerm]:
-        """
-        Get all specifier (CV qualis, arith. type specifiers, ...) `CxxTerm`s
-        which come before the fundamental type, in the order that they would
-        normally be printed.
-        """
-        pre, _, _ = self.get_ordered_declaration()
-        return pre
-
     def primitive_type(self) -> CxxTerm:
         """
         Retrieve this type's underlying primitive/fundamental type. Raises an error
@@ -505,71 +625,32 @@ class CxxType:
         """
         return self._has_primitive_type_index() is not None
 
-    def post_specifiers(self) -> list[CxxTerm]:
-        """
-        Get all specifier `CxxTerm`s which come after the fundamental type, in the
-        order that they would normally be printed.
-        """
-        _, _, post = self.get_ordered_declaration()
-        return post
-
-    def is_memory_type(self) -> bool:
-        """
-        Determine if is a "pointer/reference to" or "array of" the primitive type.
-        """
-        return any([t.kind.is_memory_type() for t in self.post_specifiers()])
-
     def is_ptr_or_ref_type(self) -> bool:
         """
-        Determine if this is a "pointer/reference to" the primitive type.
+        Determine if this is a "pointer or reference to" type.
         """
-        return any([t.kind.is_ptr_or_ref() for t in self.post_specifiers()])
+        return any([t.kind.is_ptr_or_ref() for t in self.terms])
+
+    def format(self, identifier: Optional[CxxTerm] = None) -> str:
+        """
+        Format this C++ type as a declaration with an optional identifier.
+        """
+        declarators: list[CxxDeclComponent] = CxxDeclComponent.from_type(self, identifier)
+
+        # Recursively apply declarators to obtain our string.
+        result = ""
+        prev_decl = None
+        for decl in declarators:
+            result = decl.apply(cur_decl_content=result, prev_decl=prev_decl)
+            prev_decl = decl
+
+        return result
 
     def __str__(self) -> str:
-        pre, prim, post = self.get_ordered_declaration()
-
-        inner_str: str = ""
-        outer_str: str = ""
-        prim_str: str = str(prim)
-
-        if prim.kind.is_function():
-            # Handle special cases for function types.
-            outer_str = f" {' '.join(str(t) for t in post)}" if post else ""
-
-            # This is a function pointer which may have some number of qualifiers.
-            # We need to manually format its contents instead of relying on `str(CxxTerm)`.
-            # This is because function pointer types insert their qualifiers inside
-            # of the (*) parens between the return type and parameters.
-
-            # Format the inside of the function pointer.
-            inner_fields = f"{' '.join(str(t) for t in pre)}" if pre else "*"
-            # Format the function fields.
-            ret_str = f"{prim.function_return} " if prim.function_return else "void "
-            param_str = (
-                ", ".join([str(p) for p in prim.function_params])
-                if prim.function_params
-                else "void"
-            )
-            # Format the function pointer.
-            prim_str = f"{ret_str}({inner_fields})({param_str})"
-
-        else:
-            # The upstream demangler does not print whitespace between memory
-            # specifiers for fundamental types, so we need to build this string
-            # manually.
-            inner_str = f"{' '.join(str(t) for t in pre)} " if pre else ""
-            outer_str = ""
-            for cur, next in _sliding_window(post, 2):
-                outer_str += str(cur)
-                if not (cur.kind.is_memory_type() and next.kind.is_memory_type()):
-                    outer_str += " "
-            if post:
-                # Grab the last entry that wasn't added due to the sliding window.
-                outer_str += str(post[-1])
-            if outer_str:
-                outer_str = f" {outer_str}"
-
-        return f"{inner_str}{prim_str}{outer_str}"
+        """
+        Format this C++ type as a declaration.
+        """
+        return self.format(identifier=None)
 
 
 @dataclass
@@ -648,22 +729,6 @@ class CxxSymbol:
             # To match GNU, don't output `static` for static data symbols.
             return f"{prefix_str}{self.name}{suffix_str}"
         else:
+            # Format this as a declaration.
             static_str = "static " if self.is_static else ""
-            pre, prim, post = self.type.get_ordered_declaration()
-            if prim.kind.is_function():
-                # Format this symbol as a function declaration.
-                pre_mods = f"{' '.join(str(m) for m in pre)} " if pre else ""
-                post_mods = f" {' '.join(str(m) for m in post)}" if post else ""
-
-                # If an explicit return type isn't found, the upstream demangler completely
-                # omits it for function symbols.
-                ret_str = f"{prim.function_return} " if prim.function_return else ""
-                param_str = (
-                    ", ".join([str(p) for p in prim.function_params])
-                    if prim.function_params
-                    else ""
-                )
-
-                return f"{prefix_str}{static_str}{pre_mods}{ret_str}{self.name}({param_str}){post_mods}"
-            else:
-                return f"{prefix_str}{static_str}{self.type} {self.name}"
+            return f"{prefix_str}{static_str}{self.type.format(identifier=self.name)}"
