@@ -758,17 +758,17 @@ def test_nested_functions():
         test.test()
 
 
-# def test_template_functions():
-#     """
-#     Verify that templated functions are demangled correctly.
-#     """
-#     test_data = [
-#         CaseData(
-#             input="find__t8_Rb_tree2ZUsZUs",
-#             expected="_Rb_tree<unsigned short, unsigned short>::find(void)",
-#             expected_no_params="_Rb_tree<unsigned short, unsigned short>::find",
-#         ),
-#     ]
+def test_template_functions():
+    """
+    Verify that templated function with backreferences are demangled correctly.
+    """
+    test_data = [
+        CaseData(
+            input="lexicographical_compare__H2ZPCScZPCSc_X01X11_b",
+            expected="bool lexicographical_compare<const signed char *, const signed char *>(const signed char *, const signed char *)",
+            expected_no_params="bool lexicographical_compare<const signed char *, const signed char *>",
+        ),
+    ]
 
-#     for test in test_data:
-#         test.test()
+    for test in test_data:
+        test.test()

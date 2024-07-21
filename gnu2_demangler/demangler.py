@@ -88,6 +88,9 @@ class GNU2Demangler:
         self._btypes: list[CxxTerm] = []
         self._ktypes: list[CxxName] = []
         self._typevec: list[CxxType] = []
+        # Reference to a function template, if demangled.
+        # This is used for backreferencing function arguments from template parameters.
+        self._func_templ: Optional[CxxTemplate] = None
         # Flags that are maintained for the top-level output symbol.
         self._vtable: bool = False
         self._static_type: bool = False
@@ -305,11 +308,8 @@ class GNU2Demangler:
             elif next.kind == Token.Kind.TEMPLATE:
                 typ = CxxType(
                     terms=[
-                        CxxTerm(
-                            kind=CxxTerm.Kind.QUALIFIED,
-                            qualified_name=[
-                                self._demangle_template(src, is_type=True, remember=True)
-                            ],
+                        CxxTerm.make_name(
+                            [self._demangle_template(src, is_type=True, remember=True)]
                         )
                     ]
                 )
@@ -436,26 +436,20 @@ class GNU2Demangler:
 
                 # Since we looked ahead from `dunder_offset + 2`, we need to add that to get the
                 # final guess offset from the current base.
-                return CxxTerm(
-                    kind=CxxTerm.Kind.QUALIFIED,
-                    qualified_name=[
-                        self._iterate_demangle_function(src, dunder_offset + 2 + rightmost_guess)
-                    ],
-                )
+                result = self._iterate_demangle_function(src, dunder_offset + 2 + rightmost_guess)
+                return result if isinstance(result, CxxSymbol) else CxxTerm.make_name([result])
 
             elif bytes_left(src, offset=dunder_offset + 2) > 0:
                 # Mangled name does not start with `__`, but does have one somewhere
                 # in there with non-empty stuff after it. Possibly a global function name.
                 # Iterate over `__`s until the correct one is found.
-                return CxxTerm(
-                    kind=CxxTerm.Kind.QUALIFIED,
-                    qualified_name=[self._iterate_demangle_function(src, dunder_offset)],
-                )
+                result = self._iterate_demangle_function(src, dunder_offset)
+                return result if isinstance(result, CxxSymbol) else CxxTerm.make_name([result])
 
         if self._ctor == 2 or self._dtor == 2:
             # If we haven't hit any of the other cases and this is a global x-tor,
             # just add the rest of the buffer as the global constructor/destructor name.
-            return CxxTerm(kind=CxxTerm.Kind.QUALIFIED, qualified_name=[CxxName(src.read())])
+            return CxxTerm.make_name([CxxName(src.read())])
 
         return None
 
@@ -532,13 +526,7 @@ class GNU2Demangler:
                     name_term.add_qualifying_name(templ_name)
 
                     # Remember the mangled type we just parsed.
-                    self._remember_type(
-                        CxxType(
-                            terms=[
-                                CxxTerm(kind=CxxTerm.Kind.QUALIFIED, qualified_name=[templ_name])
-                            ]
-                        )
-                    )
+                    self._remember_type(CxxType(terms=[CxxTerm.make_name([templ_name])]))
 
                     self._consume_xtor_if_needed(name_term)
                     expect_func = True
@@ -714,22 +702,22 @@ class GNU2Demangler:
             else:
                 # Read the type of the literal.
                 typ = self._do_type(src)
-                # TODO:
                 # Demangle the literal using the given type, then add it to the
                 # template args.
                 val = self._demangle_template_value_parm(src, typ)
-                assert val, "Couldn't demangle expected template value parameter!"
                 templ.add_template_param(val)
 
         if is_type:
             if remember:
                 # Remember this templated name.
-                # TODO: remember this name once we know what a `btype` actually is
-                # self._remember_btype(name)
-                pass
+                self._remember_btype(CxxTerm.make_name([templ]))
             # Return the whole name.
             return templ
         else:
+            # Save the function template params in the parser state. If a `X` or `Y` code
+            # appears in the function arguments, they'll reference this template.
+            assert not self._func_templ, "Nested template function decls. should not be possible!"
+            self._func_templ = templ.template
             # Return just the template params.
             return templ.template
 
@@ -857,8 +845,31 @@ class GNU2Demangler:
                 typ.terms.extend(self._demangle_backref_type(src).terms)
             elif next.kind == Token.Kind.BACKREF:
                 assert False, "Back reference 'B' not supported yet"
-            elif next.is_template_value_parm():
-                assert False, f"Template parameter '{next}' not supported yet"
+            elif next.is_template_backref_parm():
+                # Function template parameter backref.
+                assert self._func_templ, "Missing saved function template params for backref!"
+
+                # Consume the 'X' or 'Y' type code.
+                read_exact(src, 1)
+
+                # Read the index into the template params.
+                arg_idx: int = read_number_with_underscores(src)
+                assert arg_idx >= 0 and arg_idx < len(
+                    self._func_templ.params
+                ), f"Index {arg_idx} for template param backref is out of bounds!"
+
+                # Read another number. This is unused in upstream, so probably just filler?
+                read_number_with_underscores(src)
+
+                param = self._func_templ.params[arg_idx]
+                # For some reason, backreffing literals for function args is supported in upstream,
+                # even though it would never make sense. We don't support it here, it would
+                # make things way too complicated.
+                assert isinstance(
+                    param, CxxType
+                ), "Non-type parameter backreferenced in template function params!"
+                # Append the template type's terms.
+                typ.terms.extend(param.terms)
             else:
                 typ.terms.extend(self._demangle_fund_type(src).terms)
 
@@ -872,7 +883,7 @@ class GNU2Demangler:
         Otherwise, if `typ` is provided, it will be used to try and decode the literal value.
         """
         next = Token.peek(src)
-        if next.kind == Token.Kind.TEMPLATE_VALPARM2:
+        if next.kind == Token.Kind.TEMPLATE_ARG_BACKREF2:
             assert False, "'Y' template params not supported yet"
 
         prim = typ.primitive_type()
@@ -897,7 +908,9 @@ class GNU2Demangler:
     def _demangle_template_template_parm(self, src: TextIOBase) -> CxxName:
         assert False, "Template template params not supported yet"
 
-    def _iterate_demangle_function(self, src: TextIOBase, guess_offset: int) -> CxxName:
+    def _iterate_demangle_function(
+        self, src: TextIOBase, guess_offset: int
+    ) -> Union[CxxName, CxxSymbol]:
         """
         Given:
         - a buffer pointing to the first character of what may be a function name
@@ -905,11 +918,13 @@ class GNU2Demangler:
           the rightmost guess of where the function name ends
 
         Find the correct `__` sequence where the function name ends and the signature
-        starts (which is ambiguous with GNU mangling) and return a demangled function name.
+        starts (which is ambiguous with GNU mangling). If it's possible to demangle the
+        entire symbol with the detected function name, do so.
 
-        On success, the function name will be returned, and the buffer will point to the
-        start of the signature.
-        If a function + signature combination couldn't be demangled, an error will be thrown.
+        On success:
+        - If a full symbol was successfully demangled, it will be returned.
+        - Otherwise, the best guess of the function name will be returned,
+          and the buffer will point to the start of the signature.
         """
         # Manually save the current state of the buffer so we can restore it if
         # function name demangling fails.
@@ -929,6 +944,7 @@ class GNU2Demangler:
         #   move our `__` guess forward.
         # - In the second iteration, we try to demangle `foo__bar` as the function name
         #   and `i` as a signature, which is valid. `foo__bar` is returned.
+        maybe_name: Optional[CxxName] = None
         while guess_offset is not None and peek(src, offset=guess_offset + 2):
             # Attempt to demangle everything up to the current separator offset.
             maybe_name = self._demangle_function_name(src, separator_offset=guess_offset)
@@ -936,24 +952,17 @@ class GNU2Demangler:
             if maybe_name is not None:
                 # We got a valid function name. `src` currently points to what may be
                 # the function signature - see if it's possible for us to demangle it.
-                with peeking(src):
-                    try:
-                        # NOTE: Since upstream is just working in strings and not objects, they just
-                        # return the demangled signature if this is successful.
-                        # To simplify our call tree, we just roll back here and let the uppermost
-                        # `_demangle_signature()` call perform the full demangling.
-                        #
-                        # Unfortunately, there isn't any way to determine that
-                        # we've found the function name other than to actually try and
-                        # demangle a signature.
-                        self._demangle_signature(src)
-                        # We successfully demangled a signature after the function name.
-                        return maybe_name
-                    except Exception as e:
-                        # Continue iterating, this wasn't a function signature.
-                        print(f"Signature was invalid for name: {maybe_name}")
-                        print(e)
-                        pass
+
+                try:
+                    # Unfortunately, there isn't any way to determine that
+                    # we've found the function name other than to actually try and
+                    # demangle a signature.
+                    return self._demangle_signature(src, maybe_name)
+                except Exception as e:
+                    # Continue iterating, this wasn't a function signature.
+                    print(f"Signature was invalid for name: {maybe_name}")
+                    print(e)
+                    pass
 
             # Reset the base pointer to cover the case where we succesfully demangled a
             # function name, but not a signature.
@@ -966,11 +975,14 @@ class GNU2Demangler:
             if guess_offset is not None:
                 guess_offset = lookahead_while(src, ["_"], base_offset=guess_offset) - 2
 
-        # We never found a function with a signature.
-        raise ValueError(
-            "Read rest of buffer, but failed to find valid `funcname__signature` combo! "
-            "This symbol probably isn't GNUv2 mangled."
-        )
+        if maybe_name is None:
+            # We never found a function with a signature.
+            raise ValueError(
+                "Read rest of buffer, but failed to find valid `funcname__signature` combo! "
+                "This symbol probably isn't GNUv2 mangled."
+            )
+
+        return maybe_name
 
     def _demangle_function_name(self, src: TextIOBase, separator_offset: int) -> Optional[CxxName]:
         """
@@ -1105,13 +1117,13 @@ class GNU2Demangler:
             assert False, "`I` type not implemented yet"
         elif next.is_digit():
             # Explicit type, such as "6mytype" or "7integer".
-            name = self._demangle_class_name(src)
-            self._remember_btype(name)
-            terms.append(CxxTerm(kind=CxxTerm.Kind.QUALIFIED, qualified_name=[name]))
+            term = CxxTerm.make_name([self._demangle_class_name(src)])
+            self._remember_btype(term)
+            terms.append(term)
         elif next.kind == Token.Kind.TEMPLATE:
             # Templated type.
             name = self._demangle_template(src, is_type=True, remember=True)
-            terms.append(CxxTerm(kind=CxxTerm.Kind.QUALIFIED, qualified_name=[name]))
+            terms.append(CxxTerm.make_name([name]))
         else:
             raise ValueError(f"Unknown fundamental type specifier `{next}`")
 
@@ -1125,7 +1137,7 @@ class GNU2Demangler:
         term = CxxTerm.make_name([name])
 
         self._remember_ktype(name)
-        self._remember_btype(name)
+        self._remember_btype(term)
         return term
 
     def _demangle_quali_spec_terms(self, src: TextIOBase) -> list[CxxTerm]:

@@ -61,8 +61,8 @@ class Token:
         TEMPLATE_GPP = "H"
         TEMPLATE_TYPPARM = "Z"  # Template type parameter
         TEMPLATE_TEMPARM = "z"  # Template template parameter
-        TEMPLATE_VALPARM1 = "X"  # Template value parameter
-        TEMPLATE_VALPARM2 = "Y"  # Template value parameter
+        TEMPLATE_ARG_BACKREF1 = "X"  # Back reference to a type from the template params.
+        TEMPLATE_ARG_BACKREF2 = "Y"  # ??? - maybe backref to a literal from the template params?
 
         # Other types
         SQUANGLE_REPEAT = "n"
@@ -181,11 +181,14 @@ class Token:
         """
         return self.kind in [Token.Kind.TEMPLATE, Token.Kind.TEMPLATE_GPP]
 
-    def is_template_value_parm(self) -> bool:
+    def is_template_backref_parm(self) -> bool:
         """
-        Determine if this code is some kind of template value parameter.
+        Determine if this code is some kind of template backref parameter.
         """
-        return self.kind in [Token.Kind.TEMPLATE_VALPARM1, Token.Kind.TEMPLATE_VALPARM2]
+        return self.kind in [
+            Token.Kind.TEMPLATE_ARG_BACKREF1,
+            Token.Kind.TEMPLATE_ARG_BACKREF2,
+        ]
 
     def is_underscore(self) -> bool:
         """
