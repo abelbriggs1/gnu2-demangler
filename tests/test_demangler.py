@@ -693,3 +693,82 @@ def test_vtable():
 
     for test in test_data:
         test.test()
+
+
+def test_template_types():
+    """
+    Verify that template types are demangled correctly.
+    """
+
+    test_data = [
+        CaseData(
+            input="find__t8_Rb_tree2ZUsZUs",
+            expected="_Rb_tree<unsigned short, unsigned short>::find(void)",
+            expected_no_params="_Rb_tree<unsigned short, unsigned short>::find",
+        ),
+        CaseData(
+            input="find__t8_Rb_tree5ZUsZt4pair2ZCUsZUsZt10_Select1st1Zt4pair2ZCUsZUsZt4less1ZUsZt9allocator1ZUsRCUs",
+            expected="_Rb_tree<unsigned short, pair<const unsigned short, unsigned short>, _Select1st<pair<const unsigned short, unsigned short>>, less<unsigned short>, allocator<unsigned short>>::find(const unsigned short &)",
+            expected_no_params="_Rb_tree<unsigned short, pair<const unsigned short, unsigned short>, _Select1st<pair<const unsigned short, unsigned short>>, less<unsigned short>, allocator<unsigned short>>::find",
+        ),
+        CaseData(
+            input="_$_t13_Rb_tree_base2Zt4pair2ZCUsZUsZt9allocator1ZUs",
+            expected="_Rb_tree_base<pair<const unsigned short, unsigned short>, allocator<unsigned short>>::~_Rb_tree_base(void)",
+            expected_no_params="_Rb_tree_base<pair<const unsigned short, unsigned short>, allocator<unsigned short>>::~_Rb_tree_base",
+        ),
+        CaseData(
+            input="_$_t3map4ZUsZUsZt4less1ZUsZt9allocator1ZUs",
+            expected="map<unsigned short, unsigned short, less<unsigned short>, allocator<unsigned short>>::~map(void)",
+            expected_no_params="map<unsigned short, unsigned short, less<unsigned short>, allocator<unsigned short>>::~map",
+        ),
+        CaseData(
+            input="_S_oom_malloc__t23__malloc_alloc_template1i0Ui",
+            expected="__malloc_alloc_template<0>::_S_oom_malloc(unsigned int)",
+            expected_no_params="__malloc_alloc_template<0>::_S_oom_malloc",
+        ),
+        CaseData(
+            input="_S_chunk_alloc__t24__default_alloc_template2b0i0UiRi",
+            expected="__default_alloc_template<false, 0>::_S_chunk_alloc(unsigned int, int &)",
+            expected_no_params="__default_alloc_template<false, 0>::_S_chunk_alloc",
+        ),
+        CaseData(
+            input="_M_insert__t8_Rb_tree5ZUiZt4pair2ZCUiZUsZt10_Select1st1Zt4pair2ZCUiZUsZt4less1ZUiZt9allocator1ZUsP18_Rb_tree_node_baseT1RCt4pair2ZCUiZUs",
+            expected="_Rb_tree<unsigned int, pair<const unsigned int, unsigned short>, _Select1st<pair<const unsigned int, unsigned short>>, less<unsigned int>, allocator<unsigned short>>::_M_insert(_Rb_tree_node_base *, _Rb_tree_node_base *, const pair<const unsigned int, unsigned short> &)",
+            expected_no_params="_Rb_tree<unsigned int, pair<const unsigned int, unsigned short>, _Select1st<pair<const unsigned int, unsigned short>>, less<unsigned int>, allocator<unsigned short>>::_M_insert",
+        ),
+    ]
+
+    for test in test_data:
+        test.test()
+
+
+def test_nested_functions():
+    """
+    Verify that nested function arguments are demangled as expected.
+    """
+    test_data = [
+        CaseData(
+            input="dbsTraverse__FPP9_hierheadPFP9_hierheadP8_fvectorPA3_f_vP8_fvector",
+            expected="dbsTraverse(_hierhead **, void (*)(_hierhead *, _fvector *, float (*)[3]), _fvector *)",
+            expected_no_params="dbsTraverse",
+        )
+    ]
+
+    for test in test_data:
+        test.test()
+
+
+# def test_template_functions():
+#     """
+#     Verify that templated functions are demangled correctly.
+#     """
+#     test_data = [
+#         CaseData(
+#             input="find__t8_Rb_tree2ZUsZUs",
+#             expected="_Rb_tree<unsigned short, unsigned short>::find(void)",
+#             expected_no_params="_Rb_tree<unsigned short, unsigned short>::find",
+#         ),
+#     ]
+
+#     for test in test_data:
+#         test.test()

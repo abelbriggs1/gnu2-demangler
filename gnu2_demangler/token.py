@@ -67,6 +67,7 @@ class Token:
         # Other types
         SQUANGLE_REPEAT = "n"
         ELIPSES = "e"
+        EXPRESSION = "E"
         REPEAT = "N"
         UNDERSCORE = "_"
         STATIC = "S"
@@ -74,7 +75,7 @@ class Token:
         # Unknown types
         UNK_G = "G"
         UNK_M = "M"
-        UNK_m = "m"
+        NEGATE = "m"
         UNK_W = "W"
 
     _QUALI_MAP: ClassVar[dict[Kind, CxxTerm.Kind]] = {

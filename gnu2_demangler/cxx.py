@@ -26,31 +26,32 @@ def _sliding_window(iterable: Iterable[T], n) -> Generator[Iterable[T], None, No
 
 
 @dataclass
-class CxxTemplateValueParam:
+class CxxValue:
     """
-    Represents a value parameter inside of a C++ template.
+    Represents a literal value inside of a C++ template or array.
 
-    The contents and type of "value" will depend on the parameter's `typ`:
-    - For integral types, `value` will contain an `int`.
-    - For real types, `value` will contain a `float`.
-    - For bool types, `value` will contain a `bool`.
-    - For char types, `value` will contain a `str`.
-    """
-
-    typ: "CxxType"
-    value: Union[int, float, bool, str]
-
-
-@dataclass
-class CxxTemplateTypeParam:
-    """
-    Represents a type parameter inside of a C++ template.
+    The contents of `value` may vary wildly:
+    - For integral types, `value` should contain an `int`.
+    - For real types, `value` should contain a `float`.
+    - For bool types, `value` should contain a `bool`.
+    - For char types, `value` should contain a `str`.
+    - Otherwise, `value` may contain a `CxxTerm` of type `QUALIFIED` or `SYMBOL_REF`.
     """
 
-    typ: "CxxType"
+    value: Union[int, float, bool, str, "CxxTerm"]
 
-    def __str__(self):
-        return str(self.typ)
+    def __str__(self) -> str:
+        """
+        Print this value as a C literal. The resulting string will depend on the
+        type.
+        """
+        if isinstance(self.value, bool):
+            return "true" if self.value else "false"
+
+        if isinstance(self.value, str):
+            return f"'{self.value}'"
+
+        return str(self.value)
 
 
 @dataclass
@@ -58,12 +59,12 @@ class CxxTemplate:
     """
     Represents the contents of a C++ template. Templates can have one of three
     possible arguments:
-    - type template parameters (CxxTemplateTypeParam)
-    - non-type / value template parameters (CxxTemplateValueParam)
-    - template template parameters (CxxTemplate)
+    - type template parameters (CxxType)
+    - non-type / value template parameters (CxxValue)
+    - template template parameters (CxxName)
     """
 
-    params: list[Union[CxxTemplateTypeParam, CxxTemplateValueParam, "CxxTemplate"]]
+    params: list[Union["CxxType", CxxValue, "CxxName"]]
 
     def __str__(self):
         """
@@ -83,6 +84,17 @@ class CxxName:
 
     name: str
     template: Optional[CxxTemplate] = None
+
+    def add_template_param(self, param: Union["CxxType", CxxValue, "CxxName"]):
+        """
+        Convenience method to add a parameter to this name's template params.
+
+        If this name currently isn't a template, its template object will be initialized.
+        """
+        if not self.template:
+            self.template = CxxTemplate(params=[])
+
+        self.template.params.append(param)
 
     def __str__(self):
         template_str = str(self.template) if self.template else ""
@@ -133,6 +145,7 @@ class CxxTerm:
         # Other types/tokens
         FUNCTION = "function"
         QUALIFIED = "qualified"
+        SYMBOL_REF = "symbol_ref"
 
         def is_const(self) -> bool:
             return self == CxxTerm.Kind.CONST
@@ -194,6 +207,9 @@ class CxxTerm:
         def is_reference(self) -> bool:
             return self in [CxxTerm.Kind.LVALUE_REFERENCE, CxxTerm.Kind.RVALUE_REFERENCE]
 
+        def is_ptr_or_ref(self) -> bool:
+            return self.is_pointer() or self.is_reference()
+
         def is_array(self) -> bool:
             return self == CxxTerm.Kind.ARRAY
 
@@ -205,6 +221,9 @@ class CxxTerm:
 
         def is_qualified_name(self) -> bool:
             return self == CxxTerm.Kind.QUALIFIED
+
+        def is_symbol_ref(self) -> bool:
+            return self == CxxTerm.Kind.SYMBOL_REF
 
         def is_fund_type(self) -> bool:
             return (
@@ -222,6 +241,7 @@ class CxxTerm:
     # List of names which qualify each other. The first element is the outermost
     # qualifier, while the last element is the base/innermost name.
     qualified_name: Optional[List[CxxName]] = None
+    symbol_ref: Optional["CxxSymbol"] = None
 
     def __post_init__(self):
         """
@@ -241,6 +261,15 @@ class CxxTerm:
             assert (
                 self.kind.is_qualified_name()
             ), f"Non-qualified-name term {self.kind.name} cannot have qualified name."
+
+        if self.symbol_ref:
+            assert (
+                self.kind.is_symbol_ref()
+            ), f"Non-symbol-ref term {self.kind.name} cannot have symbol ref."
+        else:
+            assert (
+                not self.kind.is_symbol_ref()
+            ), "Symbol ref term must have `symbol_ref` populated!"
 
     def add_base_name(self, name: CxxName):
         """
@@ -335,14 +364,20 @@ class CxxTerm:
             # but since we're treating this as a function pointer, we want to include it.
             ret_str = f"{self.function_return} " if self.function_return else "void "
             param_str = (
-                ", ".join([str(p) for p in self.function_params]) if self.function_params else ""
+                ", ".join([str(p) for p in self.function_params])
+                if self.function_params
+                else "void"
             )
-            return f"{ret_str}(*) ({param_str})"
+            return f"{ret_str}(*)({param_str})"
 
         elif self.kind.is_qualified_name():
             # Format qualified name.
             assert self.qualified_name
             return "::".join([str(n) for n in self.qualified_name])
+
+        elif self.kind.is_symbol_ref():
+            assert self.symbol_ref
+            return f"&{self.symbol_ref.name}"
 
         else:
             return str(self.kind)
@@ -381,6 +416,17 @@ class CxxType:
                 return i
 
         raise AssertionError("No primitive type found in CxxType!")
+
+    def _has_primitive_type_index(self) -> Optional[int]:
+        """
+        Return the index of the primitive type in the `terms` array, if known.
+        Otherwise, returns `None`.
+        """
+        for i in reversed(range(len(self.terms))):
+            if self.terms[i].kind.is_fund_type():
+                return i
+
+        return None
 
     def get_ordered_declaration(self) -> tuple[list[CxxTerm], CxxTerm, list[CxxTerm]]:
         """
@@ -453,6 +499,12 @@ class CxxType:
         """
         return self.terms[self._primitive_type_index()]
 
+    def has_primitive_type(self) -> bool:
+        """
+        Determine if this type currently has an underlying primitive/fundamental type term.
+        """
+        return self._has_primitive_type_index() is not None
+
     def post_specifiers(self) -> list[CxxTerm]:
         """
         Get all specifier `CxxTerm`s which come after the fundamental type, in the
@@ -461,17 +513,51 @@ class CxxType:
         _, _, post = self.get_ordered_declaration()
         return post
 
+    def is_memory_type(self) -> bool:
+        """
+        Determine if is a "pointer/reference to" or "array of" the primitive type.
+        """
+        return any([t.kind.is_memory_type() for t in self.post_specifiers()])
+
+    def is_ptr_or_ref_type(self) -> bool:
+        """
+        Determine if this is a "pointer/reference to" the primitive type.
+        """
+        return any([t.kind.is_ptr_or_ref() for t in self.post_specifiers()])
+
     def __str__(self) -> str:
         pre, prim, post = self.get_ordered_declaration()
-        inner_str = f"{' '.join(str(t) for t in pre)} " if pre else ""
+
+        inner_str: str = ""
+        outer_str: str = ""
+        prim_str: str = str(prim)
 
         if prim.kind.is_function():
-            # Nothing interesting, same as the inner string.
+            # Handle special cases for function types.
             outer_str = f" {' '.join(str(t) for t in post)}" if post else ""
+
+            # This is a function pointer which may have some number of qualifiers.
+            # We need to manually format its contents instead of relying on `str(CxxTerm)`.
+            # This is because function pointer types insert their qualifiers inside
+            # of the (*) parens between the return type and parameters.
+
+            # Format the inside of the function pointer.
+            inner_fields = f"{' '.join(str(t) for t in pre)}" if pre else "*"
+            # Format the function fields.
+            ret_str = f"{prim.function_return} " if prim.function_return else "void "
+            param_str = (
+                ", ".join([str(p) for p in prim.function_params])
+                if prim.function_params
+                else "void"
+            )
+            # Format the function pointer.
+            prim_str = f"{ret_str}({inner_fields})({param_str})"
+
         else:
             # The upstream demangler does not print whitespace between memory
             # specifiers for fundamental types, so we need to build this string
             # manually.
+            inner_str = f"{' '.join(str(t) for t in pre)} " if pre else ""
             outer_str = ""
             for cur, next in _sliding_window(post, 2):
                 outer_str += str(cur)
@@ -483,7 +569,7 @@ class CxxType:
             if outer_str:
                 outer_str = f" {outer_str}"
 
-        return f"{inner_str}{prim}{outer_str}"
+        return f"{inner_str}{prim_str}{outer_str}"
 
 
 @dataclass
