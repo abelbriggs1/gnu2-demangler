@@ -134,3 +134,16 @@ ivTGlue *
 this package have several implementation quirks to work around some ambiguities
 and quirks in mangled names. They may not be suitable for general use to manipulate
 or format custom C/C++ declarations outside of the context of demangling.
+
+## Credits
+
+- The GNU project for the original demangler in `binutils`. The demangler in this
+  project is effectively a Python port of the original C code with some minor
+  facelifts and external API niceties.
+- The [`m2c`](https://github.com/matt-kempster/m2c) project's MechWarrior demangler API,
+  which inspired some of the Python API for this project.
+
+## License
+
+Since this project is a port of GPLv2 code, it is licensed under LGPLv3 in order to
+be compatible with the original code's license. See [`LICENSE`](LICENSE) for more info.
