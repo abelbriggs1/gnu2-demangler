@@ -16,6 +16,9 @@ Supports most of the typical GNU v2 mangled type codes and formats, including:
 - Template types and functions
 - Operator overloads
 
+The demangler passes all of the original demangler's test suite, although the
+original test suite only tested a small subset of possible code paths.
+
 Additionally, instead of outputting a string directly, the demangler outputs a
 combination of C/C++ tokens and flags in the form of a `CxxSymbol` Python object.
 This `CxxSymbol` can then be printed as a string to format an equivalent
@@ -134,6 +137,16 @@ ivTGlue *
 this package have several implementation quirks to work around some ambiguities
 and quirks in mangled names. They may not be suitable for general use to manipulate
 or format custom C/C++ declarations outside of the context of demangling.
+
+## Contributing
+
+Due to the extreme complexity of the demangling logic (no wonder upstream completely
+overhauled their format in GNUv3!), directly contributing fixes to the demangler
+may be difficult if you are unfamiliar with the original code.
+
+However, additional unit tests and edge cases are always welcome. If you find a symbol that
+demangles to a valid C++ symbol in the original demangler, but fails in this demangler,
+please create an issue and let us know, and we'll try to handle it!
 
 ## Credits
 
