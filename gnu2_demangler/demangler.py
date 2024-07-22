@@ -68,7 +68,9 @@ def _read_odd_count(src: TextIOBase) -> int:
 
 class GNU2Demangler:
     """
-    Demangler object.
+    GNU v2 demangler object. Given a string which contains a GNU v2 mangled C++
+    symbol, this object can parse the string into a stream of tokens which compose
+    a C/C++ symbol or type declaration.
     """
 
     def __init__(self):
@@ -1378,13 +1380,22 @@ class GNU2Demangler:
 
 
 def parse(mangled: str) -> CxxSymbol:
+    """
+    Given a GNU v2 mangled C++ symbol string, attempt to parse the string into its
+    `CxxSymbol` equivalent. An exception will be raised if parsing fails.
+    """
     p = GNU2Demangler()
     result = p.parse(mangled)
     return result
 
 
 def demangle(mangled: str) -> str:
+    """
+    Given a GNU v2 mangled C++ symbol string, attempt to parse the string into its
+    `CxxSymbol` equivalent. If parsing fails, the given string will be returned
+    unmodified.
+    """
     try:
         return str(parse(mangled))
-    except ValueError:
+    except Exception:  # noqa
         return mangled

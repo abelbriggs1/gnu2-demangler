@@ -2,29 +2,12 @@
 Module implementing C++ type abstractions.
 """
 
-import collections
 import copy
 from dataclasses import dataclass, field
 from enum import Enum
-from itertools import islice
-from typing import Generator, Iterable, List, Optional, TypeVar, Union
+from typing import List, Optional, Union
 
 from gnu2_demangler.strenum import StrEnum
-
-T = TypeVar("T")
-
-
-def _sliding_window(iterable: Iterable[T], n) -> Generator[Iterable[T], None, None]:
-    """
-    Collect data into overlapping fixed-length chunks or blocks.
-
-    sliding_window('ABCDEFG', 4) => ABCD BCDE CDEF DEFG
-    """
-    iterator = iter(iterable)
-    window = collections.deque(islice(iterator, n - 1), maxlen=n)
-    for x in iterator:
-        window.append(x)
-        yield tuple(window)
 
 
 @dataclass
@@ -573,7 +556,7 @@ class CxxType:
     """
     Represents a complete C++ type.
 
-    The final element in `terms` is generally the primitive type, such as CHAR or
+    The final element in `terms` is (generally) the primitive type, such as CHAR or
     FUNCTION. Working from the end, each previous term modifies the type.
     (This order matches the order in the mangled type)
 
